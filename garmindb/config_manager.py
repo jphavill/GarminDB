@@ -11,7 +11,7 @@ import tempfile
 from idbutils import DbParams
 from fitfile import Sport
 
-from .config import Config
+from config import Config
 
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class ConfigManager(Config):
     @classmethod
     def get_or_create_config_dir(cls):
         """Return the path to the configuation directory."""
-        return cls._create_dir_if_needed(cls.get_config_dir())
+        return cls._create_dir_if_needed('./')
 
     @classmethod
     def get_config_filename(cls):

@@ -13,8 +13,8 @@ import datetime
 from idbutils import JsonConfig
 from fitfile import Sport
 
-from .statistics import Statistics
-from .config_manager import ConfigManager
+from garmin_stats import Statistics
+from config_manager import ConfigManager
 
 
 class ConfigException(Exception):

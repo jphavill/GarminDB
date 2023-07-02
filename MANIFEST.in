@@ -1,2 +1,0 @@
-include garmindb/GarminConnectConfig.json.example
-include requirements.txt
