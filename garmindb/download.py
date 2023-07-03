@@ -5,22 +5,16 @@ __copyright__ = "Copyright Tom Goetz"
 __license__ = "GPL"
 
 import os
+from glob import glob
 import sys
 import re
 import logging
-import datetime
 import time
-import tempfile
 import zipfile
 import json
 import cloudscraper
-from tqdm import tqdm
 
-import fitfile.conversions as conversions
 from idbutils import RestClient, RestException, RestResponseException
-
-from garmin_connect_config_manager import GarminConnectConfigManager
-from config_manager import ConfigManager
 
 
 logger = logging.getLogger(__file__)
@@ -43,11 +37,8 @@ class Download():
     garmin_connect_privacy_url = "//connect.garmin.com/en-U/privacy"
 
     garmin_connect_user_profile_url = "proxy/userprofile-service/userprofile"
-    garmin_connect_weight_url = "proxy/weight-service/weight/dateRange"
 
     garmin_connect_activity_search_url = "proxy/activitylist-service/activities/search/activities"
-
-    # https://connect.garmin.com/modern/proxy/usersummary-service/usersummary/hydration/allData/2019-11-29
 
     garmin_headers = {'NK': 'NT'}
 
@@ -59,8 +50,9 @@ class Download():
         self.modern_rest_client = RestClient(self.session, 'connect.garmin.com', 'modern', aditional_headers=self.garmin_headers)
         self.activity_service_rest_client = RestClient.inherit(self.modern_rest_client, "proxy/activity-service/activity")
         self.download_service_rest_client = RestClient.inherit(self.modern_rest_client, "proxy/download-service/files")
-        self.gc_config = GarminConnectConfigManager()
         self.download_days_overlap = 1  # Existing donloaded data will be redownloaded and overwritten if it is within this number of days of now.
+        self.zip_dir = "data/zip/"
+        self.fit_dir = "data/fit/"
 
     def __get_json(self, page_html, key):
         found = re.search(key + r" = (\{.*\});", page_html, re.M)
@@ -70,16 +62,26 @@ class Download():
 
     def login(self):
         """Login to Garmin Connect."""
-        profile_dir = ConfigManager.get_or_create_fit_files_dir()
-        username = self.gc_config.get_user()
-        password = self.gc_config.get_password()
+        username = "jphavill@gmail.com"
+        password = "bike73*$ADAEIBFECE"
         if not username or not password:
             print("Missing config: need username and password. Edit GarminConnectConfig.json.")
             return
 
         logger.debug("login: %s %s", username, password)
         get_headers = {
-            'Referer'                           : self.garmin_connect_login_url
+            'Referer': self.garmin_connect_login_url,
+            'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
         }
         params = {
             'service'                           : self.modern_rest_client.url(),
@@ -154,21 +156,29 @@ class Download():
             RestClient.save_binary_file('login_home.html', response)
             return False
         self.user_prefs = self.__get_json(response.text, 'VIEWER_USERPREFERENCES')
-        if profile_dir:
-            self.modern_rest_client.save_json_to_file(f'{profile_dir}/profile.json', self.user_prefs)
         self.display_name = self.user_prefs['displayName']
         self.social_profile = self.__get_json(response.text, 'VIEWER_SOCIAL_PROFILE')
         self.full_name = self.social_profile['fullName']
         root_logger.info("login: %s (%s)", self.full_name, self.display_name)
         return True
 
+    def create_dir_if_needed(self, dir):
+        if not os.path.exists(dir):
+            os.makedirs(dir)
+        return dir
+
+    def clear_zip_folder(self, dir):
+        to_del = glob(dir + "*")
+        for file in to_del:
+            os.remove(file)
+    
     def __unzip_files(self, outdir):
         """Unzip and downloaded zipped files into the directory supplied."""
-        root_logger.info(" : from %s to %s", self.temp_dir, outdir)
-        for filename in os.listdir(self.temp_dir):
+        root_logger.info(" : from %s to %s", self.zip_dir, outdir)
+        for filename in os.listdir(self.zip_dir):
             match = re.search(r'.*\.zip', filename)
             if match:
-                full_pathname = f'{self.temp_dir}/{filename}'
+                full_pathname = f'{self.zip_dir}/{filename}'
                 with zipfile.ZipFile(full_pathname, 'r') as files_zip:
                     try:
                         files_zip.extractall(outdir)
@@ -190,7 +200,7 @@ class Download():
 
     def __save_activity_file(self, activity_id_str):
         root_logger.debug("save_activity_file: %s", activity_id_str)
-        zip_filename = f'{self.temp_dir}/activity_{activity_id_str}.zip'
+        zip_filename = f'{self.zip_dir}/activity_{activity_id_str}.zip'
         url = f'activity/{activity_id_str}'
         try:
             self.download_service_rest_client.download_binary_file(url, zip_filename)
@@ -199,18 +209,19 @@ class Download():
 
     def get_activities(self, directory, count, overwite=False):
         """Download activities files from Garmin Connect and save the raw files."""
-        print(directory)
-        self.temp_dir = tempfile.mkdtemp()
-        logger.info("Getting activities: '%s' (%d) temp %s", directory, count, self.temp_dir)
+        self.zip_dir = self.create_dir_if_needed(self.zip_dir)
+        self.clear_zip_folder(self.zip_dir)
+        logger.info("Getting activities: '%s' (%d) temp %s", directory, count, self.zip_dir)
         activities = self.__get_activity_summaries(0, count)
-        for activity in tqdm(activities or [], unit='activities'):
+        for activity in activities:
             activity_id_str = str(activity['activityId'])
             if not os.path.isfile(f'{directory}/{activity_id_str}.fit') or overwite:
                 print(f"saving to {directory}/{activity_id_str}.fit")
                 self.__save_activity_file(activity_id_str)
             # pause for a second between every page access
             time.sleep(1)
-        self.__unzip_files(directory)
+        self.__unzip_files(self.fit_dir)
+        self.clear_zip_folder(self.zip_dir)
 
 
 
