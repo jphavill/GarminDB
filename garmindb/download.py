@@ -16,6 +16,8 @@ import cloudscraper
 
 from idbutils import RestClient, RestException, RestResponseException
 
+from fittocsv import generate_stats
+
 
 logger = logging.getLogger(__file__)
 logger.addHandler(logging.StreamHandler(stream=sys.stdout))
@@ -221,6 +223,7 @@ class Download():
             # pause for a second between every page access
             time.sleep(1)
         self.__unzip_files(self.fit_dir)
+        generate_stats(self.fit_dir)
         self.clear_zip_folder(self.zip_dir)
 
 
