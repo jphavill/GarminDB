@@ -1,17 +1,34 @@
 from garmin_fit_sdk import Decoder, Stream
 from glob import glob
 
-def generate_stats(fitfolder):
-    files = glob(fitfolder+"*")
+def generate_stats(fit_files):
+    files = glob(fit_files + "/*")
     for file in files:
-        get_grades(file)
+        stream = Stream.from_file(file)
+        decoder = Decoder(stream)
+        messages, errors = decoder.read()
+        get_time(messages)
+        get_user_weight(messages)
+        get_grades(messages)
 
-def get_grades(fitfile):
-    stream = Stream.from_file(fitfile)
-    decoder = Decoder(stream)
-    messages, errors = decoder.read()
+def get_time(messages):
+    file_time = messages["file_id_mesgs"][0]["time_created"]
+    print(file_time)
+
+def get_user_weight(messages):
+    user_profile = messages["user_profile_mesgs"][0]
+    print(user_profile.keys())
+    # for key, item in user_profile.items():
+    #     print(f"{key}: {item}")
+    weight = user_profile["weight"]
+    metric = user_profile["weight_setting"] == "statute"
+    print(f"Weight: {weight}{'kg' if metric else 'lbs'}")
+
+
+# get the name of person, get the weight of person, get the day it happened
+def get_grades(messages):
     splits = messages['split_mesgs']
-
+    print()
     for split in splits:
         expected_keys = set([70, 'total_elapsed_time', 71, 15])
         
@@ -20,7 +37,7 @@ def get_grades(fitfile):
         minutes = int(time // 60)
         seconds = int(time - (minutes * 60))
         prettyTime = f"{minutes}:{seconds:02d}"
-        print()
+
         if (split["split_type"] == "climb_active"):
             if (len(expected_keys.intersection(set(split.keys()))) != len(expected_keys)):
                 print("CORRUPTED ROW")
@@ -34,5 +51,6 @@ def get_grades(fitfile):
         else:
             # print(f"Rested for: {prettyTime}")
             pass
-        print()
 
+if __name__ == "__main__":
+    generate_stats("data/fit")

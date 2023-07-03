@@ -223,7 +223,6 @@ class Download():
             # pause for a second between every page access
             time.sleep(1)
         self.__unzip_files(self.fit_dir)
-        generate_stats(self.fit_dir)
         self.clear_zip_folder(self.zip_dir)
 
 
